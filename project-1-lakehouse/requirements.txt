@@ -1,0 +1,37 @@
+# Core
+pyspark==3.5.0
+delta-spark==3.1.0
+python-dotenv==1.0.0
+
+# Azure
+azure-storage-file-datalake==12.14.0
+azure-identity==1.15.0
+databricks-sdk==0.20.0
+
+# Data Quality
+great-expectations==0.18.12
+
+# API Ingestion
+requests==2.31.0
+httpx==0.26.0
+
+# Kafka / Streaming
+confluent-kafka==2.3.0
+
+# Data Processing
+pandas==2.1.4
+pyarrow==14.0.2
+faker==22.0.0
+
+# ML
+mlflow==2.10.0
+scikit-learn==1.4.0
+
+# Testing
+pytest==7.4.4
+pytest-cov==4.1.0
+
+# Utilities
+loguru==0.7.2
+pyyaml==6.0.1
+click==8.1.7
