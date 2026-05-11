@@ -58,7 +58,7 @@ class EIAEnergyClient:
             )
         self.api_key = api_key
         self.session = requests.Session()
-        self.session.headers.update({"X-Params": json.dumps({"api_key": api_key})})
+        # api_key passed as query param — no auth header needed for EIA API
         logger.info("EIAEnergyClient initialized")
 
     def fetch_hourly_demand(
@@ -82,19 +82,21 @@ class EIAEnergyClient:
         """
         endpoint = f"{EIA_BASE_URL}/electricity/rto/region-data/data/"
 
-        params = {
-            "api_key":          self.api_key,
-            "frequency":        "hourly",
-            "data[0]":          "value",
-            "facets[respondent][]": region,
-            "facets[type][]":   "D",          # D = Demand
-            "start":            start_date,
-            "end":              end_date,
-            "sort[0][column]":  "period",
-            "sort[0][direction]": "asc",
-            "length":           limit,
-            "offset":           0,
-        }
+        # Must use list of tuples — bracket notation in keys
+        # breaks when passed as a dict through requests
+        params = [
+            ("api_key",              self.api_key),
+            ("frequency",            "hourly"),
+            ("data[0]",              "value"),
+            ("facets[respondent][]", region),
+            ("facets[type][]",       "D"),
+            ("start",                start_date),
+            ("end",                  end_date),
+            ("sort[0][column]",      "period"),
+            ("sort[0][direction]",   "asc"),
+            ("length",               str(limit)),
+            ("offset",               "0"),
+        ]
 
         logger.info(f"Fetching EIA demand | region={region} | {start_date} → {end_date}")
 
