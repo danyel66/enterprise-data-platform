@@ -26,7 +26,7 @@ def send_to_queue(payload: dict) -> bool:
     Send a single payload dict to the Service Bus queue.
     Falls back to local logging if connection string is not configured.
     """
-    if not CONNECTION_STRING:
+    if not CONNECTION_STRING or CONNECTION_STRING == "your-servicebus-connection-string":
         logger.info(
             f"[DEV MODE] Service Bus not configured — logging message locally\n"
             f"Queue: {QUEUE_NAME}\n"
@@ -52,7 +52,7 @@ def receive_from_queue(max_messages: int = 10) -> list[dict]:
     Pull up to max_messages from the Service Bus queue.
     Used by the bronze_writer consumer to drain the queue into Delta Lake.
     """
-    if not CONNECTION_STRING:
+    if not CONNECTION_STRING or CONNECTION_STRING == "your-servicebus-connection-string":
         logger.info("[DEV MODE] Service Bus not configured — returning empty list")
         return []
 

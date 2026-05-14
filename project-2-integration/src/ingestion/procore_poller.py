@@ -4,9 +4,6 @@ Procore API Poller
 Polls Procore's REST API on a schedule for new project activity
 (RFIs, submittals, observations). Normalizes each record and sends
 it to Azure Service Bus for reliable queuing into the Bronze layer.
-
-Procore uses OAuth 2.0 client credentials for server-to-server auth.
-Sandbox credentials are free at developers.procore.com
 """
 
 import logging
@@ -20,8 +17,7 @@ from src.routing.service_bus_handler import send_to_queue
 
 load_dotenv()
 
-logger = logging.getLogger(__name__)
-
+logger        = logging.getLogger(__name__)
 CLIENT_ID     = os.getenv("PROCORE_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("PROCORE_CLIENT_SECRET", "")
 COMPANY_ID    = os.getenv("PROCORE_COMPANY_ID", "")
@@ -29,47 +25,22 @@ BASE_URL      = "https://sandbox.procore.com"
 
 
 class ProcoreClient:
-    """Lightweight Procore API client with token refresh."""
 
     def __init__(self):
-        self.token = None
+        self.token        = None
         self.token_expiry = None
-        self.session = requests.Session()
-
-    def _get_token(self) -> str:
-        if self.token and datetime.now(timezone.utc) < self.token_expiry:
-            return self.token
-
-        if not CLIENT_ID or not CLIENT_SECRET:
-            logger.warning("Procore credentials not set — using mock mode")
-            return "mock_token"
-
-        response = self.session.post(
-            f"{BASE_URL}/oauth/token",
-            data={
-                "grant_type":    "client_credentials",
-                "client_id":     CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-        self.token = data["access_token"]
-        self.token_expiry = datetime.now(timezone.utc) + timedelta(
-            seconds=data.get("expires_in", 3600) - 60
-        )
-        return self.token
+        self.session      = requests.Session()
+        self.mock_mode    = not CLIENT_ID or not CLIENT_SECRET
 
     def get_rfis(self, project_id: str, updated_after: datetime) -> list[dict]:
-        """Fetch RFIs updated after a given timestamp."""
-        if not CLIENT_ID:
+        if self.mock_mode:
             return self._mock_rfis(project_id)
 
         headers = {"Authorization": f"Bearer {self._get_token()}"}
         params  = {
-            "project_id":     project_id,
-            "updated_after":  updated_after.isoformat(),
-            "per_page":       100,
+            "project_id":    project_id,
+            "updated_after": updated_after.isoformat(),
+            "per_page":      100,
         }
         r = self.session.get(
             f"{BASE_URL}/rest/v1.0/rfis",
@@ -79,47 +50,59 @@ class ProcoreClient:
         r.raise_for_status()
         return r.json()
 
+    def _get_token(self) -> str:
+        if self.token and datetime.now(timezone.utc) < self.token_expiry:
+            return self.token
+        response = self.session.post(
+            f"{BASE_URL}/oauth/token",
+            data={
+                "grant_type":    "client_credentials",
+                "client_id":     CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+            },
+        )
+        response.raise_for_status()
+        data             = response.json()
+        self.token       = data["access_token"]
+        self.token_expiry = datetime.now(timezone.utc) + timedelta(
+            seconds=data.get("expires_in", 3600) - 60
+        )
+        return self.token
+
     def _mock_rfis(self, project_id: str) -> list[dict]:
-        """Return mock RFI data for local dev/testing."""
+        logger.info(f"[MOCK] Generating mock RFIs for project {project_id}")
         return [
             {
-                "id":           f"RFI-{i:04d}",
-                "project_id":   project_id,
-                "subject":      f"Mock RFI subject {i}",
-                "status":       "open" if i % 2 == 0 else "closed",
-                "created_at":   datetime.now(timezone.utc).isoformat(),
-                "updated_at":   datetime.now(timezone.utc).isoformat(),
-                "created_by":   {"name": "Mock User", "email": "mock@example.com"},
+                "id":         f"RFI-{i:04d}",
+                "project_id": project_id,
+                "subject":    f"Mock RFI subject {i}",
+                "status":     "open" if i % 2 == 0 else "closed",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "created_by": {"name": "Mock User", "email": "mock@example.com"},
             }
             for i in range(1, 6)
         ]
 
 
 def normalize_rfi(raw: dict, company_id: str) -> dict:
-    """Flatten a Procore RFI into Bronze-layer record format."""
     return {
-        "source":          "procore",
-        "event_type":      "rfi_updated",
-        "ingested_at":     datetime.now(timezone.utc).isoformat(),
-        "company_id":      company_id,
-        "project_id":      str(raw.get("project_id", "")),
-        "rfi_id":          str(raw.get("id", "")),
-        "subject":         raw.get("subject", ""),
-        "status":          raw.get("status", ""),
-        "created_by":      raw.get("created_by", {}).get("email", ""),
-        "created_at":      raw.get("created_at", ""),
-        "updated_at":      raw.get("updated_at", ""),
+        "source":      "procore",
+        "event_type":  "rfi_updated",
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+        "company_id":  company_id,
+        "project_id":  str(raw.get("project_id", "")),
+        "rfi_id":      str(raw.get("id", "")),
+        "subject":     raw.get("subject", ""),
+        "status":      raw.get("status", ""),
+        "created_by":  raw.get("created_by", {}).get("email", ""),
+        "created_at":  raw.get("created_at", ""),
+        "updated_at":  raw.get("updated_at", ""),
     }
 
 
 def poll_and_queue(project_ids: list[str], lookback_hours: int = 1) -> int:
-    """
-    Poll Procore for recent RFI activity across all project_ids,
-    normalize each record, and send to Service Bus.
-
-    Returns: number of records queued
-    """
-    client       = ProcoreClient()
+    client        = ProcoreClient()
     updated_after = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
     total_queued  = 0
 
@@ -140,6 +123,5 @@ def poll_and_queue(project_ids: list[str], lookback_hours: int = 1) -> int:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    # In dev mode with no credentials, uses mock data
     count = poll_and_queue(project_ids=["MOCK-001", "MOCK-002"])
     print(f"Queued: {count} records")
